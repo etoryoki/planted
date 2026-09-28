@@ -1,0 +1,15 @@
+{
+  "name": "planted",
+  "version": "0.1.0",
+  "description": "Finds code a compromised account planted in your repo — before your build or editor runs it.",
+  "type": "module",
+  "bin": { "planted": "src/cli.mjs" },
+  "files": ["src", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test test/rules.test.mjs"
+  },
+  "keywords": ["security", "supply-chain", "malware", "git", "ci", "vscode", "github"],
+  "repository": { "type": "git", "url": "git+https://github.com/etoryoki/planted.git" },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}
