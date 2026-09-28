@@ -28,7 +28,7 @@ function parseArgs(argv) {
 }
 
 function render(dir, mode, { files, results }) {
-  const lines = [`planted ·${path.resolve(dir)} · ${mode} · ${files} file(s) read`];
+  const lines = [`planted · ${path.resolve(dir)} · ${mode} · ${files} file(s) read`];
   if (results.length === 0) return [...lines, "  nothing found"].join("\n");
   const sorted = [...results].sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.path.localeCompare(b.path));
   for (const r of sorted) {

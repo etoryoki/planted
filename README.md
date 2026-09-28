@@ -29,6 +29,8 @@ node planted/src/cli.mjs --refs repo.git
 Options: `--json`, `--min high|medium|info` (default `medium`), `--strict` (exit 1 on medium too).
 Exit code: `1` when a high finding exists, `0` otherwise, `2` on error.
 
+A step-by-step rollout guide (in Japanese) is in [docs/guide.ja.md](docs/guide.ja.md).
+
 ## In GitHub Actions: stop the build
 
 Run it in its own job and make the build wait for it. Pin to a commit SHA.
