@@ -6,7 +6,7 @@
   "bin": { "planted": "src/cli.mjs" },
   "files": ["src", "README.md", "LICENSE"],
   "scripts": {
-    "test": "node --test test/rules.test.mjs test/baseline.test.mjs"
+    "test": "node --test test/rules.test.mjs test/baseline.test.mjs test/org.test.mjs"
   },
   "keywords": ["security", "supply-chain", "malware", "git", "ci", "vscode", "github"],
   "repository": { "type": "git", "url": "git+https://github.com/etoryoki/planted.git" },

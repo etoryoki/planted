@@ -29,6 +29,20 @@ node planted/src/cli.mjs --refs repo.git
 Options: `--json`, `--min high|medium|info` (default `medium`), `--strict` (exit 1 on medium too).
 Exit code: `1` when a high finding exists, `0` otherwise, `2` on error.
 
+### A whole organization, from one place
+
+```sh
+node planted/src/cli.mjs --org ORG --cache .planted-cache --baseline-dir baselines
+```
+
+Mirror-clones every repository (all branches, tags and PR refs; kept in `--cache` and only
+fetched after the first run) and checks every tip. Repositories without CI are covered, and
+an attacker cannot switch it off from inside a repository. Authentication: `PLANTED_TOKEN`
+(or `GH_TOKEN` / `GITHUB_TOKEN`), passed to git through config in the environment, never in a
+URL; without a token, a logged-in `gh` and git's credential helper are used. A repository that
+cannot be read is reported, never skipped. For a nightly job see
+[docs/org-watch.yml](docs/org-watch.yml).
+
 ### Baseline: report only what is new
 
 Some findings cannot be removed (a PR ref on GitHub keeps an old infected commit). Record

@@ -216,6 +216,49 @@ jobs:
 
 ---
 
+## 6b. 組織の全リポジトリを 1 か所から夜間に検査する（推奨）
+
+手順 2〜5 は「各リポジトリの CI に入れる」形です。これには 2 つの穴があります。
+
+- CI のないリポジトリ（Java のプロジェクトなど）は検査されない
+- 書き込み権限を持つ攻撃者は、リポジトリの中のワークフローを消せる
+
+そこで、**組織の外にある 1 つのリポジトリ** から、組織の全リポジトリ・全ブランチ・全 PR を毎晩検査します。
+
+### 準備（管理者が 1 回だけ）
+
+1. **検査用の非公開リポジトリを作る**（例: 管理者個人の `planted-watch`）。組織のメンバーが書き込めない場所にします。検査結果とベースラインがここに置かれます
+2. **読み取り専用のトークンを作る**: GitHub の Settings → Developer settings → Fine-grained personal access tokens
+   - Resource owner: 組織
+   - Repository access: All repositories
+   - Permissions: **Contents: Read-only**（Metadata: Read-only は自動で付きます）。ほかの権限は付けない
+   - 組織の設定でトークンの承認が必要な場合は、組織の管理者が承認します
+3. 検査用リポジトリの Settings → Secrets and variables → Actions に、`PLANTED_TOKEN` という名前で登録する
+4. [docs/org-watch.yml](org-watch.yml) を、検査用リポジトリの `.github/workflows/planted-org.yml` として置き、`<ORG>` と `<COMMIT_SHA>` を書き換える
+
+### 最初のベースラインを作る
+
+過去の感染が残っている組織では、最初に既知の検知を登録しておきます（しないと毎晩失敗します）。
+
+```sh
+git clone https://github.com/etoryoki/planted
+# gh にログイン済みなら、その認証が使われます（トークンを直接扱う必要はありません）
+node planted/src/cli.mjs --org <ORG> --cache .planted-cache --write-baseline-dir baselines
+```
+
+- `baselines/<リポジトリ名>.json` ができます。**1 件ずつ人が確認** してから、検査用リポジトリにコミットします
+- 確認の目安は「7. 誤検知の見分け方」と「8. HIGH が出たときの初動」です。HIGH をベースラインに入れるのは、**消せない PR の ref など、片付けが済んだと確認できたものだけ** にしてください
+
+### 運用
+
+- Actions の画面から `planted-org` を手動で 1 回実行（Run workflow）して、結果を確認します
+- 毎晩 03:00 に動き、**新しい HIGH が出たリポジトリがあればジョブが失敗** します。読み取れなかったリポジトリがあっても失敗します（黙って飛ばしません）
+- 失敗の通知は、スケジュールを最後に編集した人に届きます。検査用リポジトリを **Watch** しておくと確実です
+- 結果は、実行ごとの **Summary** に出ます。リポジトリごとに「何件を既知として伏せたか」も表示されます
+- 全リポジトリのミラーは Actions のキャッシュに保存され、翌晩は差分だけを取得します（キャッシュは検査用リポジトリの中にだけ保存されます）
+
+---
+
 ## 7. 誤検知の見分け方
 
 | ルール | 正当なことがある例 | 確認すること |

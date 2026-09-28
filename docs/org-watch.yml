@@ -1,0 +1,47 @@
+# Check every repository of an organization every night, from a separate repository.
+#
+# Put this file at .github/workflows/planted-org.yml in a PRIVATE repository that members of
+# the organization cannot write to (for example a personal repository of an owner). Reviewed
+# baselines live in that repository under baselines/<repo>.json, out of reach of an account
+# that can push to the organization.
+#
+# Secret PLANTED_TOKEN: a fine-grained personal access token
+#   Resource owner: the organization · Repository access: All repositories
+#   Permissions: Contents: Read-only (Metadata: Read-only is added automatically)
+#
+# Replace <ORG> and <COMMIT_SHA> (git ls-remote https://github.com/etoryoki/planted main).
+name: planted-org
+
+on:
+  schedule:
+    - cron: "0 18 * * *" # 03:00 JST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # mirrors are kept between runs so each night only fetches what changed
+      - uses: actions/cache@v4
+        with:
+          path: .planted-cache
+          key: planted-mirrors-${{ github.run_id }}
+          restore-keys: planted-mirrors-
+
+      - name: Check every repository
+        shell: bash
+        env:
+          PLANTED_TOKEN: ${{ secrets.PLANTED_TOKEN }}
+        run: |
+          git clone --quiet https://github.com/etoryoki/planted "$RUNNER_TEMP/planted"
+          git -C "$RUNNER_TEMP/planted" checkout --quiet <COMMIT_SHA>
+          mkdir -p baselines
+          { echo '### planted: <ORG>'; echo '```'; node "$RUNNER_TEMP/planted/src/cli.mjs" --org <ORG> --cache .planted-cache --baseline-dir baselines; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
