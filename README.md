@@ -93,8 +93,9 @@ every branch and PR ref.
 ## Trusting this tool
 
 A tool that looks for code planted through a compromised account can itself be a target.
-Pin a commit SHA (as above) and read the diff before moving the pin. The code is a few
-hundred lines with no dependencies so that it can be read in one sitting. It is not on npm yet.
+Pin a commit SHA (as above) and read the diff before moving the pin. The code is about 800
+lines with no dependencies so that it can be read in one sitting. It is not on npm yet.
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## What it looks for
 
