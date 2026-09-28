@@ -302,7 +302,8 @@ node "$HOME/tools/planted/src/cli.mjs" . || echo "planted: 仕込まれたコー
 ## 10. planted の更新
 
 - 固定している SHA を新しいものに変えるときは、**変更点を読んでから** 変えてください: `git -C planted log -p <今の SHA>..<新しい SHA>`
-- 依存パッケージはありません。コードは数百行なので、一度に読める量です
+- 依存パッケージはありません。コードは約 800 行なので、一度に読める量です
+- 脆弱性（planted 自体の問題）は、公開の Issue ではなく非公開で報告してください: [SECURITY.md](../SECURITY.md)
 
 ## 問い合わせ・誤検知の報告
 
