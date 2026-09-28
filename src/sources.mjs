@@ -53,34 +53,107 @@ export function listRefs(repo) {
  * @returns {Map<string, { path: string, where: string[] }>}
  */
 export function blobsAtRefs(repo, refs) {
-  // many refs point at the same commit (a branch and its remote, merged branches): list each tree once
+  // many refs point at the same commit (a branch and its remote, merged branches): one entry each
   const byCommit = new Map();
   for (const { sha, ref } of refs) {
     const short = ref.replace(/^refs\/(?:heads\/|remotes\/)?/, "");
     byCommit.set(sha, [...(byCommit.get(sha) ?? []), short]);
   }
   const blobs = new Map();
-  for (const [commit, names] of byCommit) {
-    let out;
-    try {
-      out = git(repo, ["ls-tree", "-r", "-z", "--full-tree", "-l", `${commit}^{tree}`]).toString("utf8");
-    } catch {
-      continue;
-    }
-    for (const entry of out.split("\0")) {
-      if (!entry) continue;
-      const tab = entry.indexOf("\t");
-      const [, type, sha, size] = entry.slice(0, tab).split(/\s+/);
-      const p = entry.slice(tab + 1);
-      const secret = isSecretFile(p);
-      if (type !== "blob" || (!secret && !isRelevant(p)) || Number(size) > MAX_SIZE) continue;
-      const b = blobs.get(sha);
-      if (b) {
-        for (const n of names) if (!b.where.includes(n)) b.where.push(n);
-      } else blobs.set(sha, { path: p, where: [...names], secret });
+  const add = (sha, p, names) => {
+    const secret = isSecretFile(p);
+    if (!secret && !isRelevant(p)) return;
+    const b = blobs.get(sha);
+    if (b) {
+      for (const n of names) if (!b.where.includes(n)) b.where.push(n);
+    } else blobs.set(sha, { path: p, where: [...names], secret });
+  };
+
+  // List one tree in full (the default branch), and for every other tip only what differs
+  // from it. Hundreds of PR refs share most files with the default branch; listing each tree
+  // in full made a repository with ~800 PR refs take minutes.
+  let base = null;
+  try {
+    base = git(repo, ["rev-parse", "--verify", "-q", "HEAD^{commit}"]).toString().trim();
+  } catch {}
+  if (!base || !byCommit.has(base)) base = byCommit.keys().next().value ?? null;
+  if (!base) return blobs;
+
+  const baseNames = byCommit.get(base);
+  const baseFiles = new Map(); // path -> blob, for attributing unchanged files to other refs
+  for (const entry of git(repo, ["ls-tree", "-r", "-z", "--full-tree", "-l", `${base}^{tree}`]).toString("utf8").split("\0")) {
+    if (!entry) continue;
+    const tab = entry.indexOf("\t");
+    const [, type, sha, size] = entry.slice(0, tab).split(/\s+/);
+    const p = entry.slice(tab + 1);
+    if (type !== "blob" || Number(size) > MAX_SIZE) continue;
+    baseFiles.set(p, sha);
+    add(sha, p, baseNames);
+  }
+
+  // every other tip against the base, through one `git diff-tree --stdin` (a process per ref
+  // is slow with thousands of PR refs, especially on Windows)
+  const others = [...byCommit.keys()].filter((c) => c !== base);
+  const trees = execFileSync("git", ["-C", repo, "cat-file", "--batch-check=%(objectname)"], {
+    input: [base, ...others].map((c) => `${c}^{tree}`).join("\n") + "\n",
+    maxBuffer: 1 << 30,
+  }).toString("utf8").split("\n");
+  const baseTree = trees[0];
+  const namesByTree = new Map(); // tree -> ref names (commits can share a tree)
+  const changedBy = new Map(); // tree -> { names, changed paths }
+  others.forEach((c, i) => {
+    const t = trees[i + 1];
+    if (!/^[0-9a-f]{40,64}$/.test(t ?? "")) return;
+    namesByTree.set(t, [...(namesByTree.get(t) ?? []), ...byCommit.get(c)]);
+  });
+  for (const [t, names] of namesByTree) changedBy.set(t, { names, changed: new Set() });
+  const pairs = [...namesByTree.keys()].filter((t) => t !== baseTree);
+  if (pairs.length) {
+    const out = execFileSync("git", ["-C", repo, "diff-tree", "--stdin", "-r", "-z", "--no-renames"], {
+      input: pairs.map((t) => `${baseTree} ${t}`).join("\n") + "\n",
+      maxBuffer: 1 << 30,
+    }).toString("utf8");
+    let cur = null;
+    const parts = out.split("\0");
+    for (let i = 0; i < parts.length; i++) {
+      let tok = parts[i];
+      // each pair starts with "<tree> <tree>\n", run together with its first entry
+      const header = /^\n?([0-9a-f]{40,64}) ([0-9a-f]{40,64})\n/.exec(tok);
+      if (header) {
+        cur = changedBy.get(header[2]);
+        tok = tok.slice(header[0].length);
+      }
+      if (!tok.startsWith(":") || !cur) continue;
+      const p = parts[++i];
+      cur.changed.add(p);
+      const [, newMode, , newSha, status] = tok.slice(1).split(" ");
+      if (status === "D" || newMode.startsWith("16")) continue; // deleted, or a submodule
+      add(newSha, p, cur.names);
     }
   }
+
+  // a file a ref did not touch is the base's file: it is in that ref too
+  for (const [p, sha] of baseFiles) {
+    const b = blobs.get(sha);
+    if (!b || b.path !== p) continue;
+    for (const { names, changed } of changedBy.values()) {
+      if (!changed.has(p)) for (const n of names) if (!b.where.includes(n)) b.where.push(n);
+    }
+  }
+  if (blobs.size) dropLarge(repo, blobs);
   return blobs;
+}
+
+/** Diff output has no sizes: ask git once and drop what is too large to read. */
+function dropLarge(repo, blobs) {
+  const out = execFileSync("git", ["-C", repo, "cat-file", "--batch-check=%(objectname) %(objectsize)"], {
+    input: [...blobs.keys()].join("\n") + "\n",
+    maxBuffer: 1 << 30,
+  }).toString("utf8");
+  for (const line of out.split("\n")) {
+    const [sha, size] = line.split(" ");
+    if (size !== undefined && Number(size) > MAX_SIZE) blobs.delete(sha);
+  }
 }
 
 /** Every relevant blob anywhere in history (reachable from any ref). */

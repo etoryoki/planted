@@ -6,7 +6,9 @@
 //   planted --refs [DIR]        tips of every branch / tag in DIR (nothing is checked out)
 //   planted --history [DIR]     every file version in DIR's history
 //   options: --json  --min medium|info  --strict (exit 1 on medium too)
+//            --baseline FILE (report only what FILE does not know)  --write-baseline FILE
 import path from "node:path";
+import { applyBaseline, loadBaseline, writeBaseline } from "./baseline.mjs";
 import { HIGH, INFO, MEDIUM } from "./rules.mjs";
 import { scan } from "./scan.mjs";
 
@@ -21,15 +23,21 @@ function parseArgs(argv) {
     else if (a === "--json") o.json = true;
     else if (a === "--strict") o.strict = true;
     else if (a === "--min") o.min = argv[++i];
+    else if (a === "--baseline") o.baseline = argv[++i];
+    else if (a === "--write-baseline") o.writeBaseline = argv[++i];
     else if (a === "-h" || a === "--help") o.help = true;
     else o.dir = a;
   }
   return o;
 }
 
-function render(dir, mode, { files, results }) {
+function render(dir, mode, { files, results, baseline }) {
   const lines = [`planted · ${path.resolve(dir)} · ${mode} · ${files} file(s) read`];
-  if (results.length === 0) return [...lines, "  nothing found"].join("\n");
+  // always say how much the baseline hid: an edited baseline is how a payload would hide
+  if (baseline) {
+    lines.push(`  baseline ${baseline.file}: ${baseline.suppressed} known finding(s) not shown${baseline.stale ? `, ${baseline.stale} entr${baseline.stale === 1 ? "y" : "ies"} no longer found` : ""}`);
+  }
+  if (results.length === 0) return [...lines, baseline ? "  nothing new" : "  nothing found"].join("\n");
   const sorted = [...results].sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.path.localeCompare(b.path));
   for (const r of sorted) {
     const where = r.where.length > 3 ? `${r.where.slice(0, 3).join(", ")} +${r.where.length - 3}` : r.where.join(", ");
@@ -43,11 +51,21 @@ function render(dir, mode, { files, results }) {
 async function main() {
   const o = parseArgs(process.argv.slice(2));
   if (o.help) {
-    console.log("usage: planted [--refs | --history] [DIR] [--json] [--min high|medium|info] [--strict]");
+    console.log("usage: planted [--refs | --history] [DIR] [--json] [--min high|medium|info] [--strict] [--baseline FILE] [--write-baseline FILE]");
     return;
   }
   const out = await scan(o);
   out.results = out.results.filter((r) => RANK[r.severity] >= (RANK[o.min] ?? RANK[MEDIUM]));
+  if (o.writeBaseline) {
+    const n = writeBaseline(o.writeBaseline, out.results);
+    console.log(`planted · wrote ${n} finding(s) to ${o.writeBaseline}. Review it before relying on it: everything in it stops being reported where it was seen.`);
+    return;
+  }
+  if (o.baseline) {
+    const b = applyBaseline(out.results, loadBaseline(o.baseline));
+    out.results = b.results;
+    out.baseline = { file: o.baseline, suppressed: b.suppressed, stale: b.stale };
+  }
   if (o.json) console.log(JSON.stringify({ dir: path.resolve(o.dir), mode: o.mode, ...out }, null, 2));
   else console.log(render(o.dir, o.mode, out));
   const bad = out.results.some((r) => r.severity === HIGH || (o.strict && r.severity === MEDIUM));

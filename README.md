@@ -29,6 +29,22 @@ node planted/src/cli.mjs --refs repo.git
 Options: `--json`, `--min high|medium|info` (default `medium`), `--strict` (exit 1 on medium too).
 Exit code: `1` when a high finding exists, `0` otherwise, `2` on error.
 
+### Baseline: report only what is new
+
+Some findings cannot be removed (a PR ref on GitHub keeps an old infected commit). Record
+what you have reviewed, and later runs report only what is new:
+
+```sh
+node planted/src/cli.mjs --refs repo.git --write-baseline planted-baseline.json   # review this file
+node planted/src/cli.mjs --refs repo.git --baseline planted-baseline.json
+```
+
+- An entry is a rule + path + file (blob) + **the branches and PRs it was seen on**. The same
+  file dropped on a new branch is reported again, for the new branch.
+- Every run prints how many findings the baseline hid, and entries that are no longer found.
+- The baseline file can hide a payload if an attacker edits it. Keep it outside the scanned
+  repository, or require review for changes to it (CODEOWNERS + a ruleset).
+
 A step-by-step rollout guide (in Japanese) is in [docs/guide.ja.md](docs/guide.ja.md).
 
 ## In GitHub Actions: stop the build
